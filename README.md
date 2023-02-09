@@ -1,34 +1,32 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Bug description
 
-## Getting Started
+When using a custom server and using i18n there is a some weird behaviour where the asPath where it returns an invalid url or `//`. A reproducable example is in this repo.
 
-First, run the development server:
+When we use a custom server with nextjs and i18n setup, when loading a locale we see that the asPath property is `//`:
 
-```bash
-npm run dev
-# or
-yarn dev
+![image](./without-initial-props.jpg)
+
+The code that causes this issue is [here](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/base-server.ts#L1321-L1328) and the problem is that `urlPathname === /fr` and `resolvedUrlPathname === '/'` so when we check if we need to add a trailing slash, we check the `urlPathname` pathname and then use `resolvedUrlPathname` to append the trailing slash to.
+
+The two variables diverge at the [following point](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/base-server.ts#L1213-L1217) and this causes the two to evaulate to:
+
+```javascript
+urlPathname = "/fr";
+resolvedUrlPathname = "/";
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+which we then essentially do:
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+```javascript
+if (urlPathname !== "/" && this.nextConfig.trailingSlash) {
+  resolvedUrl = `${resolvedUrlPathname}${hadTrailingSlash ? "/" : ""}`;
+}
+```
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+so we end up with `resolvedUrl = '//'`
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
+---
 
-## Learn More
+We can partially "fix" this by adding an `getInitialProps` method to our page which causes the [following](https://github.com/vercel/next.js/blob/canary/packages/next/src/server/base-server.ts#L1349-L1354) block to execute and outputs `/fr/` _however_ this url is still wrong as `asPath` is meant to strip the URL locale from the url:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+![image](./with-initial-props.jpg)
